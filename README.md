@@ -14,9 +14,9 @@
 |---|---|---|
 | **Dataset Scale** | **10,422 Orbital Crops** | $227 \times 227$ Single-Channel Grayscale Imagery |
 | **Latent Compression** | **256-Dimensional Vector** | Bottleneck vector $z \in \mathbb{R}^{256}$ learned via Autoencoder V3 |
-| **Novelty Engine** | **Isolation Forest (300 Trees)** | Fitted on full $10,422 \times 256$ latent feature matrix |
-| **Statistical Cutoff** | **$\tau = \mu + 3\sigma = 0.626565$** | Empirical 3-sigma decision boundary on novelty scores |
-| **Flagged Anomalies** | **206 Images (1.98%)** | 10,216 Normal images; 206 Outliers exceeding $\tau$ |
+| **Novelty Engine** | **Isolation Forest (300 Trees)** | Fitted on full $10,422 \times 256$ latent feature matrix (`random_state=42`) |
+| **Statistical Cutoff** | **$\tau = \mu + 3\sigma = 0.626565$** | Empirical statistical threshold on novelty scores |
+| **Flagged Anomalies** | **206 Images (1.98%)** | 10,216 Normal images; 206 threshold-qualified anomaly candidates |
 | **Model Parameters** | **30,416,929 Parameters** | 100% Trainable, Zero Pretraining (Trained strictly from scratch) |
 | **V3 Validation Loss** | **$5.7049 \times 10^{-5}$ Combined Val Loss** | Pure Val MSE: $4.2304 \times 10^{-5}$ (V2 achieved lowest pure MSE: $3.7316 \times 10^{-5}$) |
 | **Top-1 Anomaly** | **`sample_06029.jpg`** | Novelty Score: **0.742821** (Exceeds $\tau = 0.626565$) |
@@ -64,7 +64,7 @@ flowchart LR
     
     subgraph DecisionSpace["4. Statistical Filtering & Interpretability"]
         F["Empirical Decision Boundary\nτ = μ + 3σ = 0.626565"]
-        G["206 Outliers (1.98%)\nTop-5 Candidates"]
+        G["206 Anomaly Candidates (1.98%)\nTop-5 Candidates"]
         H["Pixel Error Heatmaps (x - x̂)²\n& Geological Hypotheses"]
     end
     
@@ -86,7 +86,7 @@ The primary engineering and scientific objectives addressed are:
 - **Total Images**: 10,422 single-channel grayscale crops (`sample_00001.jpg` to `sample_10422.jpg`).
 - **Spatial Resolution / Dimensions**: $227 \times 227$ pixels per crop.
 - **Image Format**: JPEG (`.jpg`), single-channel grayscale (loaded as 8-bit L-mode).
-- **Pixel Intensity Statistics (Raw uint8 across 1,000 random samples)**:
+- **Pixel Intensity Statistics (Raw uint8 across 1,000 random sample images in dataset sanity check)**:
   - Minimum: `0.0`
   - Maximum: `255.0`
   - Mean: `118.439095`
@@ -128,7 +128,7 @@ flowchart TD
     subgraph S2["Phase 2 — Novelty Scoring & Thresholding"]
         P5["5. Isolation Forest Novelty Engine\n300 Trees, max_samples='auto'\nFit on full 10,422 × 256 Latent Space"]
         P6["6. Continuous Novelty Scoring\nNovelty Score = -s(z)\nHigher Score = Greater Anomalousness"]
-        P7["7. Statistical Thresholding\nEmpirical Rule: τ = μ + 3σ\nτ = 0.626565 → 206 Anomalies (1.98%)"]
+        P7["7. Statistical Thresholding\nEmpirical Rule: τ = μ + 3σ\nτ = 0.626565 → 206 Candidates (1.98%)"]
         P8["8. Top-5 Anomaly Selection\nFilter threshold-qualified set first\nRank descending by Novelty Score"]
         P4 --> P5 --> P6 --> P7 --> P8
     end
@@ -136,7 +136,7 @@ flowchart TD
     subgraph S3["Phase 3 — Interpretability & Geological Analysis"]
         P9["9. Reconstruction Interpretability\nV3 Forward Pass & Pixel-wise\nSquared Error Heatmaps (x - x̂)²"]
         P10["10. Geological Interpretation\nObservational morphological hypotheses\nfor Top-5 candidates"]
-        P11["11. Metadata & Location Analysis\nGeographic coords, sun angle, season,\nand 264-D Multimodal Fusion check"]
+        P11["11. Metadata & Location Analysis\nGeographic coords, sun angle, season,\nand source observation mapping"]
         P8 --> P9 --> P10 --> P11
     end
 ```
@@ -219,7 +219,7 @@ The final selected model is **Autoencoder Version 3 (V3)**, utilizing a 4-stage 
 | | `enc4` | `Conv2d` | $128 \times 29 \times 29$ | $256 \times 15 \times 15$ | $295,168$ | $k=3, s=2, p=1$ | `ReLU` |
 | **Bottleneck** | `flatten` | `Flatten` | $256 \times 15 \times 15$ | $57,600$ | $0$ | — | None |
 | | `fc_latent`| `Linear` | $57,600$ | **$256$ (Latent)** | $14,745,856$ | — | None |
-| | `fc_decode`| `Linear` | $256$ | $57,600$ | $14,745,600$ | — | None |
+| | `fc_decode`| `Linear` | $256$ | $57,600$ | $14,803,200$ | — | None |
 | | `unflatten`| `Reshape` | $57,600$ | $256 \times 15 \times 15$ | $0$ | — | None |
 | **Decoder** | `dec4` | `ConvTranspose2d` | $256 \times 15 \times 15$ | $128 \times 29 \times 29$ | $295,040$ | $k=3, s=2, p=1, op=0$ | `ReLU` |
 | | `skip3` | `Concat([d4, e3])`| $(128+128) \times 29 \times 29$ | $256 \times 29 \times 29$ | $0$ | Channel Concatenation | None |
@@ -262,18 +262,18 @@ where $\lambda_{\text{grad}} = 0.1$.
 |---|---|---:|---|---|
 | **V1 — Baseline** | 4-Stage ConvAE (No Skip)<br>Loss: Pure MSE | 30,324,481 | Best Val MSE: **0.002040** (Epoch 19) | Broad terrain preserved; high-frequency textures, ridges, and crater boundaries smoothed. |
 | **V2 — Improved** | 4-Stage ConvAE + Skip Connections<br>Loss: Pure MSE | 30,416,929 | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19) | **Achieved lowest pure validation MSE**; 98.16% MSE reduction over V1; sharp spatial boundaries. |
-| **V3 — Final** | 4-Stage ConvAE + Skip Connections<br>Loss: Combined MSE + 0.1 × Gradient | 30,416,929 | Best Combined Val Loss: **$5.7049 \times 10^{-5}$**<br>Pure Val MSE: **$4.2304 \times 10^{-5}$** (Epoch 19) | Added gradient-aware term to V2 architecture to explicitly emphasize edge transitions and local structural relief for interpretability. |
+| **V3 — Final** | 4-Stage ConvAE + Skip Connections<br>Loss: Combined MSE + 0.1 × Gradient | 30,416,929 | Best Combined Val Loss: **$5.7049 \times 10^{-5}$**<br>Pure Val MSE: **$4.2304 \times 10^{-5}$** (Epoch 19) | Retains V2 skip architecture; added gradient-aware term to explicitly emphasize edge transitions and local structural relief for interpretability. |
 
 > [!NOTE]
-> Although Version 2 achieved the lowest pure validation MSE ($3.7316 \times 10^{-5}$), Version 3 was selected for the final pipeline because its combined objective explicitly optimizes for local gradient and structural fidelity needed for geological error interpretation.
+> Although Version 2 achieved the lowest pure validation MSE ($3.7316 \times 10^{-5}$), Version 3 was selected for the final pipeline because its combined objective explicitly incorporates local gradient and structural information valuable for morphological error interpretation.
 
 ### Engineering Changelog Table
 
 | Version | Symptom | Diagnosis | Fix / Change | Result |
 |---|---|---|---|---|
-| **V1 — Baseline** | Reconstructions reproduced broad global brightness but heavily smoothed fine ridges, small craters, and high-frequency textures. | A strict 256-D linear bottleneck without skip pathways forces the decoder to hallucinate high-frequency spatial detail from compressed features. | Baseline 4-stage convolutional autoencoder with dense bottleneck ($30,324,481$ parameters). | Best Val MSE: **0.002040** (Epoch 19). Reconstructions lacked fine-scale structural sharpness. |
-| **V2 — Improved** | Severe loss of localized spatial information through the bottleneck. | Intermediate spatial feature maps from encoder stages $e_1, e_2, e_3$ were discarded before reaching decoder. | Introduced multi-scale symmetric skip connections concatenating encoder activations into decoder blocks $d_2, d_3, d_4$ ($30,416,929$ parameters). | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19), achieving a **98.16% reduction in validation error** over V1 with sharp edge reconstruction. |
-| **V3 — Final** | Reconstructions were visually sharp, but pure pixel MSE objective treated all spatial gradients equally without explicitly enforcing edge continuity. | Pixel-level MSE lacks explicit sensitivity to boundary transitions and surface gradient orientation. | Retained V2 skip architecture; augmented objective with horizontal and vertical finite-difference gradient loss ($\lambda_{\text{grad}} = 0.1$). | Best Combined Val Loss: **$5.7049 \times 10^{-5}$** (Epoch 19); Pure Val MSE: **$4.2304 \times 10^{-5}$**. Enhanced edge and ridge fidelity for interpretability. |
+| **V1 — Baseline** | Reconstructions reproduced broad global brightness but smoothed fine ridges, small craters, and high-frequency textures. | A strict 256-D linear bottleneck without skip pathways forces the decoder to hallucinate high-frequency spatial detail from compressed features. | Baseline 4-stage convolutional autoencoder with dense bottleneck ($30,324,481$ parameters). | Best Val MSE: **0.002040** (Epoch 19). Reconstructions lacked fine-scale structural sharpness. |
+| **V2 — Improved** | Loss of localized spatial detail through the bottleneck. | Intermediate spatial feature maps from encoder stages $e_1, e_2, e_3$ were discarded before reaching decoder. | Introduced multi-scale symmetric skip connections concatenating encoder activations into decoder blocks $d_2, d_3, d_4$ ($30,416,929$ parameters). | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19), achieving a **98.16% reduction in validation error** over V1 with sharp edge reconstruction. |
+| **V3 — Final** | Reconstructions were visually sharp, but pure pixel MSE objective treated all spatial gradients equally without explicitly enforcing boundary transitions. | Pixel-level MSE lacks explicit sensitivity to boundary transitions and surface gradient orientation. | Retained V2 skip architecture; augmented objective with horizontal and vertical finite-difference gradient loss ($\lambda_{\text{grad}} = 0.1$). | Best Combined Val Loss: **$5.7049 \times 10^{-5}$** (Epoch 19); Pure Val MSE: **$4.2304 \times 10^{-5}$**. Enhanced edge and ridge fidelity for interpretability. |
 
 ---
 
@@ -286,10 +286,11 @@ where $\lambda_{\text{grad}} = 0.1$.
   - `learning_rate`: `"auto"`
   - `init`: `"pca"`
   - `random_state`: `42`
-- **Observations & Analysis**:
-  - The 2D projection reveals a large, continuous central population representing typical background Martian terrain along with several smaller, spatially separated groups.
-  - The presence of structured regions indicates that the encoder learned a non-trivial representation of variation within Mars HiRISE imagery rather than collapsing into a single indistinguishable embedding.
-  - **Diagnostic Context**: t-SNE is treated strictly as a qualitative representation diagnostic. The separated groups are not interpreted as confirmed geological classes or anomalies; actual novelty detection is conducted independently on the full 256-dimensional latent space using Isolation Forest.
+- **Observations & Diagnostic Analysis**:
+  - The 2D t-SNE projection provides a qualitative diagnostic of variation in the learned latent representation.
+  - The projection exhibits a continuous central population representing typical background Martian terrain along with several separated groupings.
+  - These separated regions are treated strictly as qualitative diagnostics of representation structure rather than confirmed geological classes or anomalies.
+  - Anomaly identification is conducted independently on the full 256-dimensional latent space using Isolation Forest.
 
 ---
 
@@ -319,7 +320,7 @@ where $s(z)$ denotes the native Isolation Forest path-length score (`score_sampl
 
 ## 10. Statistical Thresholding
 
-The final anomaly decision boundary is established strictly from empirical distribution statistics, avoiding arbitrary contamination percentages.
+The final anomaly decision boundary is established directly from empirical distribution statistics, avoiding arbitrary contamination percentages.
 
 ### Final V3 Statistical Threshold
 - **Statistical Rule**: Mean $+ 3 \times$ Standard Deviation ($\mu + 3\sigma$)
@@ -327,8 +328,8 @@ The final anomaly decision boundary is established strictly from empirical distr
 
 $$\tau_{\text{final}} = \mu + 3\sigma = 0.3983287455997971 + 3 \times 0.07607877795182633 = 0.6265650794552761$$
 
-- **Empirical Cutoff**: $\tau_{\text{final}} \approx \mathbf{0.626565}$
-- **Threshold-Qualified Anomalies**: **206 images**
+- **Empirical Statistical Cutoff**: $\tau_{\text{final}} \approx \mathbf{0.626565}$
+- **Threshold-Qualified Anomaly Candidates**: **206 images**
 - **Normal Images**: **10,216 images**
 - **Dataset Anomaly Percentage**: **1.98%** ($1.976588\%$)
 
@@ -351,18 +352,18 @@ $$\tau_{\text{final}} = \mu + 3\sigma = 0.3983287455997971 + 3 \times 0.07607877
 |     |*************************************************-------------- |         v            |
 |     +----------------------------------------------------------------+--------------------> |
 |      0.330                 0.398 (Mean mu)                         0.627     0.743 Novelty  |
-|      <---------- Normal Background Terrain (10,216) ---------> <--- 206 Outliers (1.98%) ->|
+|      <---------- Normal Background Terrain (10,216) ---------> <--- 206 Candidates (1.98%) |
 +---------------------------------------------------------------------------------------------+
 ```
 
 > [!NOTE]
-> Diagnostic candidate analysis on earlier baseline runs evaluated $1\sigma$ (1,576 flagged), $2\sigma$ (577 flagged), $3\sigma$ (171 flagged on V1), and geometric curve elbow detection (1,642 flagged at 0.454288). The final V3 $\mu + 3\sigma$ thresholding isolates precisely the steep upper tail of the novelty distribution without arbitrary contamination presets.
+> The final V3 $\mu + 3\sigma$ empirical statistical threshold isolates the upper tail of the novelty score distribution directly from the data statistics without relying on arbitrary contamination presets.
 
 ---
 
 ## 11. Final Anomaly Results
 
-The Top-5 anomalies were selected **strictly after applying the statistical threshold** ($\text{Novelty Score} > 0.626565$) by sorting the 206 threshold-qualified candidates in descending order of novelty score.
+The Top-5 anomaly candidates were selected **strictly after applying the statistical threshold** ($\text{Novelty Score} > 0.626565$) by sorting the 206 threshold-qualified candidates in descending order of novelty score.
 
 ### Final V3 Top-5 Anomalies Table
 
@@ -374,7 +375,7 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 | **4** | `sample_09253.jpg` | **0.738691** | $0.000012$ | $0.005185$ | Exceeds $\tau$ ($0.626565$) |
 | **5** | `sample_08233.jpg` | **0.737548** | $0.000019$ | $0.015385$ | Exceeds $\tau$ ($0.626565$) |
 
-*All five top candidates comfortably exceed the statistical anomaly threshold ($\tau = 0.626565$).*
+*All five top candidates exceed the statistical anomaly threshold ($\tau = 0.626565$).*
 
 ---
 
@@ -390,7 +391,7 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 +-----------------------------+-----------------------------+---------------------------------+
 ```
 
-- **Reconstruction Analysis**: Passing anomalous inputs through the V3 autoencoder produces high-fidelity reconstructions across standard background textures, but fails locally over rare, out-of-distribution morphology.
+- **Reconstruction Analysis**: Passing anomalous inputs through the V3 autoencoder produces high-fidelity reconstructions across standard background textures, but exhibits localized reconstruction differences over rare morphology.
 - **Pixel-Wise Squared Error Maps**: Computed as $E(i, j) = (x(i, j) - \hat{x}(i, j))^2$, visualized with the `'hot'` colormap.
 - **Interpretability Rationale**: The localized concentration of reconstruction error provides spatial evidence indicating which specific features (e.g., sharp contrast margins, atypical relief, isolated depressions) drive latent isolation.
 
@@ -398,15 +399,15 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 
 ## 13. Geological Interpretation
 
-The following hypotheses were formulated by analyzing the visible morphology and spatial reconstruction error maps of the final Top-5 anomalies:
+The following hypotheses were formulated by analyzing the visible morphology and spatial reconstruction error maps of the final Top-5 anomaly candidates:
 
 | Rank | Filename | Observed Morphology Pattern | Reconstruction Error Evidence | Observational Geological Hypothesis |
 |:---:|:---:|---|---|---|
-| **1** | `sample_06029.jpg` | Multiple elongated, approximately parallel, high-contrast ridge or trough-like structures. | Localized reconstruction differences concentrated along the prominent linear ridge structures. | Possible layered, ridged, or trough-like terrain morphology. Illumination and shadow geometry contribute to the enhanced relief contrast. |
-| **2** | `sample_04537.jpg` | Irregular high-contrast surface structure visible near the right side of the crop. | Reconstruction mismatch concentrated around parts of the high-contrast terrain structure. | Possible localized terrain transition or outcrop morphology. *(The black region at the image boundary is treated as a cropping border rather than a geological feature).* |
-| **3** | `sample_03547.jpg` | Several elongated and irregular high-contrast structures embedded within smoother terrain. | Highest mean error ($0.000172$) and highest maximum pixel error ($0.022258$) among Top 5. | Possible ridge-like, eroded, or locally elevated/depressed bedrock outcrop. Illumination geometry and steep slope shadows may enhance contrast. |
-| **4** | `sample_09253.jpg` | Compact dark-and-bright oval/circular feature with a pronounced contrast boundary. | Reconstruction error sharply localized directly on the compact circular feature. | Possible small impact crater, pit depression, or shadowed topographic feature contrasting with surrounding plain. |
-| **5** | `sample_08233.jpg` | Several elongated bright ridge-like structures embedded in a textured surface. | Localized reconstruction differences occur along the bright linear crest lines. | Possible ridge-like or layered surface morphology with solar illumination enhancing ridge-crest reflectivity. |
+| **1** | `sample_06029.jpg` | Multiple elongated, approximately parallel, high-contrast ridge or trough-like structures. | Localized reconstruction differences concentrated along the prominent linear structures. | Possible layered, ridged, or trough-like terrain morphology. Illumination and shadow geometry may contribute to the strong contrast. |
+| **2** | `sample_04537.jpg` | Irregular high-contrast surface structure visible near the right side of the crop. | Reconstruction mismatch concentrated around parts of the high-contrast terrain structure. | Possible unusual local terrain morphology or surface-texture transition. *(The black region at the image boundary is treated as an image border rather than a geological feature).* |
+| **3** | `sample_03547.jpg` | Several elongated and irregular high-contrast structures embedded within smoother terrain. | Highest mean error ($0.000172$) and highest maximum pixel error ($0.022258$) among Top 5. | Possible ridge-like, eroded, or locally elevated/depressed terrain structures. Acquisition and illumination effects cannot be ruled out. |
+| **4** | `sample_09253.jpg` | Compact dark-and-bright oval/circular feature with a pronounced contrast boundary. | Reconstruction error concentrated around the compact circular feature. | Possible small depression, pit-like feature, or shadowed surface object. The strong contrast may also be influenced by illumination geometry. |
+| **5** | `sample_08233.jpg` | Several elongated bright ridge-like structures embedded in a textured surface. | Localized reconstruction differences occur around the brighter elongated structures. | Possible ridge-like or layered surface morphology, with solar illumination potentially enhancing observed relief. |
 
 > [!NOTE]
 > These geological interpretations are observational hypotheses based on morphology and reconstruction mismatch; they should not be treated as confirmed geological classifications.
@@ -416,29 +417,25 @@ The following hypotheses were formulated by analyzing the visible morphology and
 ## 14. Metadata and Location Analysis
 
 ### Analyzed Metadata Parameters
-The 206 detected anomalies were cross-referenced with all available acquisition metadata:
+The 206 detected anomaly candidates were cross-referenced with all available acquisition metadata:
 - **Latitude Distribution**: Spans $-90.0^\circ$ to $+90.0^\circ$.
 - **Longitude Distribution**: Spans $0.0^\circ$ to $180.0^\circ$. Detections near $180^\circ$ reflect coordinate convention boundaries rather than true physical clustering.
 - **Source Observations**: The 206 anomalies originate from **101 unique source images** (e.g., `SRC_013` contributed 7, `SRC_040` contributed 6, `SRC_103`, `SRC_011`, `SRC_115` contributed 5 each). This confirms anomalies are distributed across multiple parent strips rather than being an artifact of a single corrupted observation.
 
 ### Acquisition Distribution Comparison
 
-| Metadata Variable | Anomaly Subset (206 Images) | Full Dataset (10,422 Images) | Statistical Consistency Check |
+| Metadata Variable | Anomaly Subset (206 Images) | Full Dataset (10,422 Images) | Observational Finding |
 |---|---|---|---|
-| **Season: N-spring** | 42.23% | 40.20% | Consistent with baseline distribution |
-| **Season: N-summer** | 27.67% | 29.07% | Consistent with baseline distribution |
-| **Season: N-autumn** | 19.42% | 20.93% | Consistent with baseline distribution |
-| **Season: N-winter** | 10.68% | 9.80% | Consistent with baseline distribution |
-| **Resolution: 0.25 m/px** | 51.94% | 51.10% | Unbiased across spatial resolutions |
-| **Resolution: 0.50 m/px** | 46.60% | 47.58% | Unbiased across spatial resolutions |
-| **Resolution: 1.00 m/px** | 1.46% | 1.31% | Unbiased across spatial resolutions |
-| **Sun Angle (Mean / Range)** | $54.50^\circ$ [$32.10^\circ, 85.68^\circ$] | $55.31^\circ$ [$32.10^\circ, 85.68^\circ$] | Spans identical full range without bias |
+| **Season: N-spring** | 42.23% | 40.20% | Proportions closely match full dataset |
+| **Season: N-summer** | 27.67% | 29.07% | Proportions closely match full dataset |
+| **Season: N-autumn** | 19.42% | 20.93% | Proportions closely match full dataset |
+| **Season: N-winter** | 10.68% | 9.80% | Proportions closely match full dataset |
+| **Resolution: 0.25 m/px** | 51.94% | 51.10% | Distributed across standard resolutions |
+| **Resolution: 0.50 m/px** | 46.60% | 47.58% | Distributed across standard resolutions |
+| **Resolution: 1.00 m/px** | 1.46% | 1.31% | Distributed across standard resolutions |
+| **Sun Angle (Mean / Range)** | $54.50^\circ$ [$32.10^\circ, 85.68^\circ$] | $55.31^\circ$ [$32.10^\circ, 85.68^\circ$] | Spans identical full range without acquisition bias |
 
-### Optional Metadata Fusion Experiment
-A secondary experiment evaluated multimodal feature concatenation by combining the 256-D image latent vectors with 8 standardized metadata features (4 standardized numerical features: latitude, longitude, sun angle, resolution + 4 one-hot encoded seasons) to form a 264-dimensional feature matrix $X_{\text{fused}} \in \mathbb{R}^{10422 \times 264}$.
-- **Spearman Rank Correlation**: $\rho = \mathbf{0.9818}$ ($p = 0.0$).
-- **Anomaly Set Overlap**: 149 / 171 candidates ($87.1\%$).
-- **Conclusion**: The high correlation confirms that the detected anomalies are primarily driven by learned morphological visual features rather than metadata biases.
+The metadata comparison indicates that the detected anomaly candidates are not concentrated in specific acquisition seasons, solar illumination angles, or single-strip imaging artifacts; rather, their isolation scores reflect distinctive visual feature patterns within the learned V3 latent representation.
 
 ---
 
@@ -453,7 +450,6 @@ A secondary experiment evaluated multimodal feature concatenation by combining t
 | **Phase 2.1 — Novelty Scoring** | 300-tree Isolation Forest fitted on full 256-D latent dataset with negated path length scoring. | `Complete` |
 | **Phase 2.2 — Statistical Thresholding** | Applied empirical $\mu + 3\sigma$ threshold ($\tau = 0.626565$), identifying 206 anomaly candidates (1.98%). | `Complete` |
 | **Phase 2.3 — Location Analysis** | Source observation mapping and acquisition metadata comparison (lat, long, season, sun angle, resolution). | `Complete` |
-| **Phase 2.4 — Metadata Fusion** | 264-D multimodal fusion (latents + standardized metadata) yielding Spearman rank correlation $\rho = 0.9818$. | `Complete` |
 | **Phase 3.1 — Reconstruction Interpretability** | Reconstructed Top-5 anomalies and generated pixel-wise squared error heatmaps (`cmap="hot"`). | `Complete` |
 | **Phase 3.2 — Geological Report** | Documented observational hypotheses for each of the Top-5 anomaly candidates based on morphology and error maps. | `Complete` |
 | **Phase 4 — Architecture Iteration & Design Journal** | Documented V1 $\rightarrow$ V2 $\rightarrow$ V3 evolution with symptom-diagnosis-fix reasoning, changelogs, and comparative metrics. | `Complete` |
@@ -465,7 +461,7 @@ A secondary experiment evaluated multimodal feature concatenation by combining t
 - **Programming Language**: Python
 - **Deep Learning Framework**: PyTorch (`torch`, `torch.nn`, `torch.utils.data`)
 - **Machine Learning & Novelty Detection**: Scikit-learn (`sklearn.ensemble.IsolationForest`, `sklearn.manifold.TSNE`, `sklearn.model_selection.train_test_split`, `sklearn.preprocessing.StandardScaler`, `sklearn.preprocessing.OneHotEncoder`)
-- **Scientific Computing & Data Handling**: NumPy, Pandas, SciPy (`scipy.stats.spearmanr`)
+- **Scientific Computing & Data Handling**: NumPy, Pandas, SciPy
 - **Image Processing**: Pillow (PIL)
 - **Data Visualization**: Matplotlib (`matplotlib.pyplot`), Seaborn (`seaborn`)
 - **Hardware Acceleration**: NVIDIA CUDA (Tesla T4 GPU verified in notebook)
@@ -476,7 +472,6 @@ A secondary experiment evaluated multimodal feature concatenation by combining t
 
 ```text
 nssc-data-analytics/
-├── .git/
 ├── NSSC_2026_Mars_HiRISE_Anomaly_Detection.ipynb
 └── README.md
 ```
@@ -485,16 +480,17 @@ nssc-data-analytics/
 
 ## 18. Reproducibility
 
-To ensure strict end-to-end reproducibility of all experiments, parameters, and tables:
+To support exact reproducibility of all documented experiments, model states, and statistical thresholds:
 - **Fixed Random Seeds**: `random_state = 42` is fixed across data splitting (`train_test_split`), t-SNE projection (`TSNE`), and Isolation Forest fitting (`IsolationForest`).
-- **Deterministic Checkpoint Restoration**: Model state with the lowest validation loss was restored via `copy.deepcopy` (Epoch 19 for V1, V2, and V3).
-- **Consistent Data Pipeline**: Dataset loaders use `shuffle=False` with preserved indexing for full-dataset latent extraction and metadata alignment checks.
-- **Automated Pipeline Assertions**: All tensor dimensions ($(10422, 256)$), score lengths, threshold equations, and Top-5 criteria pass automated assert checks in the notebook.
+- **Deterministic Checkpoint Restoration**: Model state with the lowest validation loss was saved and restored via `copy.deepcopy(model.state_dict())` (best validation achieved at Epoch 19 for V1, V2, and V3).
+- **Consistent Data Pipeline**: Full-dataset latent extraction uses a `DataLoader` with `shuffle=False` (`num_workers=0`) to preserve deterministic sample alignment.
+- **Automated Pipeline Assertions**: All tensor dimensions ($(10422, 256)$), score lengths, statistical threshold calculations, and Top-5 criteria pass automated assertion checks in the notebook.
 
 ---
 
 
-## 20. Limitations
+
+## 19. Limitations
 
 - **Unsupervised Paradigm**: In the absence of ground-truth anomaly annotations, detected samples represent statistical outliers in the learned feature space, not confirmed geological phenomena.
 - **Image Boundary Effects**: Image crops containing black borders or detector edge margins can produce elevated reconstruction error localized along boundaries.
@@ -503,6 +499,6 @@ To ensure strict end-to-end reproducibility of all experiments, parameters, and 
 
 ---
 
-## 21. Disclaimer
+## 20. Disclaimer
 
 All geological interpretations, terrain descriptions, and anomaly classifications presented in this repository are **observational hypotheses** formulated from visual inspection and reconstruction error analysis. They should not be treated as confirmed geological ground truth or definitive discoveries of planetary anomalies.
