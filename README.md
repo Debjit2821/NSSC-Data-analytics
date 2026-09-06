@@ -8,21 +8,18 @@
 
 ---
 
-### 📊 Executive Pipeline Summary
+### Key Pipeline Metrics
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   MARS HiRISE ANOMALY DETECTION PIPELINE                               │
-├───────────────────────┬─────────────────────────┬───────────────────────────┬──────────────────────────┤
-│ 🛰️ Dataset Size       │ 🧠 Latent Compression   │ 🌲 Novelty Engine         │ 🎯 Statistical Cutoff    │
-│ 10,422 Orbital Crops  │ 256-D Bottleneck Vector │ Isolation Forest (300-T)  │ Parametric τ = μ + 3σ    │
-│ 227 × 227 Grayscale   │ Skip-Autoencoder (V3)   │ Score = -score_samples(z) │ τ = 0.626565             │
-├───────────────────────┼─────────────────────────┼───────────────────────────┼──────────────────────────┤
-│ 📉 Model Parameters   │ ⚡ Pure Val MSE (V3)    │ 🔍 Flagged Anomalies      │ 🏆 Top-1 Candidate       │
-│ 30,416,929 (100% Train)│ 4.2304 × 10⁻⁵           │ 206 images (1.98%)        │ sample_06029.jpg         │
-│ Zero Pretraining      │ 98.16% error reduction  │ 10,216 normal images      │ Novelty: 0.742821        │
-└───────────────────────┴─────────────────────────┴───────────────────────────┴──────────────────────────┘
-```
+| Metric Category | Specification / Value | Description |
+|---|---|---|
+| **Dataset Scale** | **10,422 Orbital Crops** | $227 \times 227$ Single-Channel Grayscale Imagery |
+| **Latent Compression** | **256-Dimensional Vector** | Bottleneck vector $z \in \mathbb{R}^{256}$ learned via Autoencoder V3 |
+| **Novelty Engine** | **Isolation Forest (300 Trees)** | Fitted on full $10,422 \times 256$ latent feature matrix |
+| **Statistical Cutoff** | **$\tau = \mu + 3\sigma = 0.626565$** | Parametric 3-sigma decision boundary on novelty scores |
+| **Flagged Anomalies** | **206 Images (1.98%)** | 10,216 Normal images; 206 Outliers exceeding $\tau$ |
+| **Model Parameters** | **30,416,929 Parameters** | 100% Trainable, Zero Pretraining (Trained strictly from scratch) |
+| **Reconstruction Error** | **$4.2304 \times 10^{-5}$ Val MSE** | 98.16% validation MSE reduction from V1 baseline to V3 |
+| **Top-1 Anomaly** | **`sample_06029.jpg`** | Novelty Score: **0.742821** (Exceeds $\tau = 0.626565$) |
 
 ---
 
@@ -62,7 +59,7 @@ flowchart LR
     
     subgraph NoveltySpace["3. Latent Novelty Scoring"]
         D["Isolation Forest Engine\n300 Isolation Trees"]
-        E["Continuous Novelty Scores\nScore = -score_samples(z)"]
+        E["Continuous Novelty Scores\nScore = -s(z)"]
     end
     
     subgraph DecisionSpace["4. Statistical Filtering & Interpretability"]
@@ -99,20 +96,10 @@ The primary engineering and scientific objectives addressed are:
 ### Metadata Schema
 The dataset includes two accompanying metadata files:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                     METADATA RELATIONSHIP SCHEMA                                │
-├──────────────────────────────────────────────────────┬──────────────────────────────────────────┤
-│ 📄 crop_metadata_index.csv (10,422 rows × 2 cols)    │ 📄 source_image_metadata.csv (172 × 6)   │
-├──────────────────────────────────────────────────────┼──────────────────────────────────────────┤
-│ • filename         : string (e.g. 'sample_00001.jpg')│ • source_image_id : string (PK)          │
-│ • source_image_id  : string (FK -> SRC_xxx) ─────────┼─► latitude        : float [-90.0, 90.0]  │
-│                                                      │ • longitude       : float [0.0, 180.0]   │
-│                                                      │ • sun_angle       : float [32.1°, 85.7°] │
-│                                                      │ • season          : string (4 categories)│
-│                                                      │ • resolution      : float (0.25/0.50/1.0)│
-└──────────────────────────────────────────────────────┴──────────────────────────────────────────┘
-```
+| Metadata File | Dimensions | Key Columns | Description |
+|---|---|---|---|
+| `crop_metadata_index.csv` | 10,422 rows $\times$ 2 cols | `filename`, `source_image_id` | Maps individual image crop filenames to their parent HiRISE observation IDs. |
+| `source_image_metadata.csv` | 172 rows $\times$ 6 cols | `source_image_id`, `latitude`, `longitude`, `sun_angle`, `season`, `resolution` | Observation-level acquisition parameters including planetary coordinates, solar illumination, and resolution. |
 
 ### Preprocessing & Data Splitting
 - **Preprocessing**: Images are standardized at $227 \times 227$ pixels. No synthetic resizing, cropping, padding, or artifact removal is applied, preserving authentic spatial fidelity.
@@ -140,7 +127,7 @@ flowchart TD
 
     subgraph S2["Phase 2 — Novelty Scoring & Thresholding"]
         P5["5. Isolation Forest Novelty Engine\n300 Trees, max_samples='auto'\nFit on full 10,422 × 256 Latent Space"]
-        P6["6. Continuous Novelty Scoring\nNovelty Score = -score_samples(Z)\nHigher Score = Greater Anomalousness"]
+        P6["6. Continuous Novelty Scoring\nNovelty Score = -s(z)\nHigher Score = Greater Anomalousness"]
         P7["7. Statistical Thresholding\nParametric Rule: τ = μ + 3σ\nτ = 0.626565 → 206 Anomalies (1.98%)"]
         P8["8. Top-5 Anomaly Selection\nFilter threshold-qualified set first\nRank descending by Novelty Score"]
         P4 --> P5 --> P6 --> P7 --> P8
@@ -160,84 +147,66 @@ flowchart TD
 
 The final selected model is **Autoencoder Version 3 (V3)**, utilizing a 4-stage skip-connected convolutional encoder-decoder architecture with a fully connected 256-dimensional bottleneck.
 
-### 📐 Layer-by-Layer Architectural Blueprint
+### Layer-by-Layer Architectural Flow
 
 ```
-═══════════════════════════════════════════════════════════════════════════════════════════════
- INPUT: Normalized Orbital Crop (1 × 227 × 227)
-═══════════════════════════════════════════════════════════════════════════════════════════════
-                                │
-                                ▼
- ┌─────────────────────────────────────────────────────────────┐
- │ ENCODER STAGE 1 (enc1)                                      │
- │ Conv2d(1 → 32, k=3, s=2, p=1) + ReLU                        │ ───► [Skip 1: 32×114×114] ───┐
- │ Output: (32 × 114 × 114)                                    │                              │
- └─────────────────────────────────────────────────────────────┘                              │
-                                │                                                             │
-                                ▼                                                             │
- ┌─────────────────────────────────────────────────────────────┐                              │
- │ ENCODER STAGE 2 (enc2)                                      │                              │
- │ Conv2d(32 → 64, k=3, s=2, p=1) + ReLU                       │ ───► [Skip 2: 64×57×57] ──┐  │
- │ Output: (64 × 57 × 57)                                      │                           │  │
- └─────────────────────────────────────────────────────────────┘                           │  │
-                                │                                                          │  │
-                                ▼                                                          │  │
- ┌─────────────────────────────────────────────────────────────┐                           │  │
- │ ENCODER STAGE 3 (enc3)                                      │                           │  │
- │ Conv2d(64 → 128, k=3, s=2, p=1) + ReLU                      │ ───► [Skip 3: 128×29×29] ─┼──┼──┐
- │ Output: (128 × 29 × 29)                                     │                           │  │  │
- └─────────────────────────────────────────────────────────────┘                           │  │  │
-                                │                                                          │  │  │
-                                ▼                                                          │  │  │
- ┌─────────────────────────────────────────────────────────────┐                           │  │  │
- │ ENCODER STAGE 4 (enc4)                                      │                           │  │  │
- │ Conv2d(128 → 256, k=3, s=2, p=1) + ReLU                     │                           │  │  │
- │ Output: (256 × 15 × 15)                                     │                           │  │  │
- └─────────────────────────────────────────────────────────────┘                           │  │  │
-                                │                                                          │  │  │
-                                ▼                                                          │  │  │
- ┌─────────────────────────────────────────────────────────────┐                           │  │  │
- │ LATENT BOTTLENECK                                           │                           │  │  │
- │ Flatten (57,600) ──► Linear(57,600 → 256) ──► Latent Z      │                           │  │  │
- │ Latent Z (256-D) ──► Linear(256 → 57,600) ──► Reshape       │                           │  │  │
- │ Output: (256 × 15 × 15)                                     │                           │  │  │
- └─────────────────────────────────────────────────────────────┘                           │  │  │
-                                │                                                          │  │  │
-                                ▼                                                          │  │  │
- ┌─────────────────────────────────────────────────────────────┐                           │  │  │
- │ DECODER STAGE 4 (dec4 + skip3)                              │                           │  │  │
- │ ConvTranspose2d(256 → 128, k=3, s=2, p=1, op=0) + ReLU      │                           │  │  │
- │ Concat [d4 (128×29×29), enc3 (128×29×29)]                   │ ◄─────────────────────────┘  │  │
- │ Output: (256 × 29 × 29)                                     │                              │  │
- └─────────────────────────────────────────────────────────────┘                              │  │
-                                │                                                             │  │
-                                ▼                                                             │  │
- ┌─────────────────────────────────────────────────────────────┐                              │  │
- │ DECODER STAGE 3 (dec3 + skip2)                              │                              │  │
- │ ConvTranspose2d(256 → 64, k=3, s=2, p=1, op=0) + ReLU       │                              │  │
- │ Concat [d3 (64×57×57), enc2 (64×57×57)]                     │ ◄────────────────────────────┘  │
- │ Output: (128 × 57 × 57)                                     │                                 │
- └─────────────────────────────────────────────────────────────┘                                 │
-                                │                                                                │
-                                ▼                                                                │
- ┌─────────────────────────────────────────────────────────────┐                                 │
- │ DECODER STAGE 2 (dec2 + skip1)                              │                                 │
- │ ConvTranspose2d(128 → 32, k=3, s=2, p=1, op=1) + ReLU       │                                 │
- │ Concat [d2 (32×114×114), enc1 (32×114×114)]                 │ ◄───────────────────────────────┘
- │ Output: (64 × 114 × 114)                                    │
- └─────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
- ┌─────────────────────────────────────────────────────────────┐
- │ DECODER STAGE 1 (dec1 — Output Layer)                       │
- │ ConvTranspose2d(64 → 1, k=3, s=2, p=1, op=0) + Sigmoid      │
- │ Output: (1 × 227 × 227)                                     │
- └─────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-═══════════════════════════════════════════════════════════════════════════════════════════════
- OUTPUT: Reconstructed Orbital Crop (1 × 227 × 227)
-═══════════════════════════════════════════════════════════════════════════════════════════════
++---------------------------------------------------------------------------------------------+
+| INPUT IMAGE: (1 x 227 x 227) Normalized Grayscale Tensor                                    |
++---------------------------------------------------------------------------------------------+
+                                       |
+                                       v
++---------------------------------------------------------------------------------------------+
+| ENCODER STAGE 1 (enc1): Conv2d(1 -> 32, k=3, s=2, p=1) + ReLU  --> (32 x 114 x 114)        |---+
++---------------------------------------------------------------------------------------------+   |
+                                       |                                                          | [Skip 1]
+                                       v                                                          |
++---------------------------------------------------------------------------------------------+   |
+| ENCODER STAGE 2 (enc2): Conv2d(32 -> 64, k=3, s=2, p=1) + ReLU --> (64 x 57 x 57)          |--+|
++---------------------------------------------------------------------------------------------+  ||
+                                       |                                                         || [Skip 2]
+                                       v                                                         ||
++---------------------------------------------------------------------------------------------+  ||
+| ENCODER STAGE 3 (enc3): Conv2d(64 -> 128, k=3, s=2, p=1) + ReLU --> (128 x 29 x 29)        |-+||
++---------------------------------------------------------------------------------------------+ |||
+                                       |                                                        |||| [Skip 3]
+                                       v                                                        ||||
++---------------------------------------------------------------------------------------------+ ||||
+| ENCODER STAGE 4 (enc4): Conv2d(128 -> 256, k=3, s=2, p=1) + ReLU --> (256 x 15 x 15)        | ||||
++---------------------------------------------------------------------------------------------+ ||||
+                                       |                                                        ||||
+                                       v                                                        ||||
++---------------------------------------------------------------------------------------------+ ||||
+| LATENT BOTTLENECK: Flatten (57,600) -> Linear(57,600 -> 256) --> LATENT VECTOR z (256-D)   | ||||
+|                    Linear(256 -> 57,600) -> Reshape (256 x 15 x 15)                         | ||||
++---------------------------------------------------------------------------------------------+ ||||
+                                       |                                                        ||||
+                                       v                                                        ||||
++---------------------------------------------------------------------------------------------+ ||||
+| DECODER STAGE 4 (dec4): ConvTranspose2d(256 -> 128, k=3, s=2, p=1, op=0) + ReLU             | ||||
+|                         Concat [dec4 (128), enc3 (128)] --> (256 x 29 x 29)                 |<-+||
++---------------------------------------------------------------------------------------------+  |||
+                                       |                                                          ||
+                                       v                                                          ||
++---------------------------------------------------------------------------------------------+   ||
+| DECODER STAGE 3 (dec3): ConvTranspose2d(256 -> 64, k=3, s=2, p=1, op=0) + ReLU              |   ||
+|                         Concat [dec3 (64), enc2 (64)] --> (128 x 57 x 57)                   |<--+|
++---------------------------------------------------------------------------------------------+    |
+                                       |                                                           |
+                                       v                                                           |
++---------------------------------------------------------------------------------------------+    |
+| DECODER STAGE 2 (dec2): ConvTranspose2d(128 -> 32, k=3, s=2, p=1, op=1) + ReLU              |    |
+|                         Concat [dec2 (32), enc1 (32)] --> (64 x 114 x 114)                  |<---+
++---------------------------------------------------------------------------------------------+
+                                       |
+                                       v
++---------------------------------------------------------------------------------------------+
+| DECODER STAGE 1 (dec1): ConvTranspose2d(64 -> 1, k=3, s=2, p=1, op=0) + Sigmoid            |
++---------------------------------------------------------------------------------------------+
+                                       |
+                                       v
++---------------------------------------------------------------------------------------------+
+| RECONSTRUCTED OUTPUT: (1 x 227 x 227) Normalized Grayscale Tensor                           |
++---------------------------------------------------------------------------------------------+
 ```
 
 ### Detailed Layer Specifications
@@ -289,18 +258,13 @@ where $\lambda_{\text{grad}} = 0.1$.
 
 ## 7. Model Evolution — V1 → V2 → V3
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                             MODEL EVOLUTION BENCHMARK                                                  │
-├─────────┬──────────────────────────┬──────────────────────┬──────────────────────┬─────────────────────────────────────┤
-│ Version │ Architecture Topology    │ Reconstruction Loss  │ Parameters           │ Best Validation Metric (Epoch 19)   │
-├─────────┼──────────────────────────┼──────────────────────┼──────────────────────┼─────────────────────────────────────┤
-│ **V1**  │ Baseline ConvAE (No Skip)│ Pure MSE Loss        │ 30,324,481 params    │ Val MSE: 0.002040 (Blurry textures) │
-│ **V2**  │ Skip-Connected ConvAE    │ Pure MSE Loss        │ 30,416,929 params    │ Val MSE: 3.7316 × 10⁻⁵ (-98.16%)    │
-│ **V3**  │ Skip-Connected ConvAE    │ MSE + 0.1 × Gradient │ 30,416,929 params    │ Combined Val Loss: 5.7049 × 10⁻⁵    │
-│         │                          │                      │                      │ Pure Val MSE: 4.2304 × 10⁻⁵         │
-└─────────┴──────────────────────────┴──────────────────────┴──────────────────────┴─────────────────────────────────────┘
-```
+| Version | Topology & Loss | Parameters | Best Validation Metric | Qualitative Assessment |
+|---|---|---:|---|---|
+| **V1 — Baseline** | 4-Stage ConvAE (No Skip)<br>Loss: Pure MSE | 30,324,481 | Best Val MSE: **0.002040** (Epoch 19) | Broad terrain preserved; high-frequency textures, ridges, and crater boundaries smoothed. |
+| **V2 — Improved** | 4-Stage ConvAE + Skip Connections<br>Loss: Pure MSE | 30,416,929 | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19) | **98.16% validation MSE reduction**; fine spatial textures and boundaries sharply reconstructed. |
+| **V3 — Final** | 4-Stage ConvAE + Skip Connections<br>Loss: Combined MSE + 0.1 × Gradient | 30,416,929 | Best Combined Val Loss: **$5.7049 \times 10^{-5}$**<br>Pure Val MSE: **$4.2304 \times 10^{-5}$** (Epoch 19) | Explicit gradient awareness preserves linear ridge transitions and localized surface relief for interpretability. |
+
+### Engineering Changelog Table
 
 | Version | Symptom | Diagnosis | Fix / Change | Result |
 |---|---|---|---|---|
@@ -339,7 +303,9 @@ where $\lambda_{\text{grad}} = 0.1$.
 - **Novelty Score Definition**:
   Scikit-learn's native `score_samples()` outputs lower scores for isolated/anomalous samples. To adhere to standard scoring conventions where higher values denote greater anomaly, scores are negated:
 
-$$\text{Novelty Score}(x) = - \text{score\_samples}(z)$$
+$$\text{Novelty Score}(x) = - s(z)$$
+
+where $s(z)$ denotes the native Isolation Forest path-length score (`score_samples`).
 
 - **V3 Novelty Score Distribution Statistics**:
   - Minimum Novelty Score: `0.330454`
@@ -366,27 +332,30 @@ $$\tau_{\text{final}} = \mu + 3\sigma = 0.3983287455997971 + 3 \times 0.07607877
 - **Dataset Anomaly Percentage**: **1.98%** ($1.976588\%$)
 
 ```
-                        EMPIRICAL NOVELTY SCORE TAIL DISTRIBUTION
-  Density
-    │
-    │      █████████
-    │    █████████████
-    │   ███████████████
-    │  █████████████████
-    │  ██████████████████
-    │ ▄███████████████████
-    │ ▄████████████████████▄▄▄
-    │ ▄██████████████████████████▄▄▄▄                       STATISTICAL THRESHOLD
-    │ ▄████████████████████████████████▄▄▄▄▄▄▄▄▄              τ = μ + 3σ = 0.626565
-    │ ▄██████████████████████████████████████████▄▄▄▄▄▄▄▄▄       │
-    │                                                           │   ▼ TOP-5 ANOMALIES
-    └───────────────────────────────────────────────────────────┼─────────────► Novelty Score
-     0.330                 0.398 (Mean μ)                     0.627         0.743
-     ◄────────── Normal Planetary Terrain (10,216) ───────────► ◄── 206 Outliers ──►
++---------------------------------------------------------------------------------------------+
+|                           EMPIRICAL NOVELTY SCORE TAIL DISTRIBUTION                         |
+|                                                                                             |
+|   Density                                                                                   |
+|     |                                                                                       |
+|     |         *****                                                                         |
+|     |       *********                                                                       |
+|     |      ***********                                                                      |
+|     |     *************                                                                     |
+|     |    ***************                                                                    |
+|     |   *****************                                  STATISTICAL THRESHOLD            |
+|     |  ********************                               tau = mu + 3*sigma = 0.626565     |
+|     | ***********************----                                    |                      |
+|     |**************************--------                              |   Top-5 Outliers     |
+|     |**********************************------------                  |         |            |
+|     |*************************************************-------------- |         v            |
+|     +----------------------------------------------------------------+--------------------> |
+|      0.330                 0.398 (Mean mu)                         0.627     0.743 Novelty  |
+|      <---------- Normal Background Terrain (10,216) ---------> <--- 206 Outliers (1.98%) ->|
++---------------------------------------------------------------------------------------------+
 ```
 
 > [!NOTE]
-> Diagnostic candidate analysis on earlier baseline runs evaluated 1σ (1,576 flagged), 2σ (577 flagged), 3σ (171 flagged on V1), and geometric curve elbow detection (1,642 flagged at 0.454288). The final V3 $\mu + 3\sigma$ thresholding isolates precisely the steep upper tail of the novelty distribution.
+> Diagnostic candidate analysis on earlier baseline runs evaluated $1\sigma$ (1,576 flagged), $2\sigma$ (577 flagged), $3\sigma$ (171 flagged on V1), and geometric curve elbow detection (1,642 flagged at 0.454288). The final V3 $\mu + 3\sigma$ thresholding isolates precisely the steep upper tail of the novelty distribution.
 
 ---
 
@@ -396,13 +365,13 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 
 ### Final V3 Top-5 Anomalies Table
 
-| Rank | Filename | Source Image ID | Novelty Score | Mean Reconstruction Error | Maximum Pixel Error | Status |
+| Rank | Filename | Source Image ID | Novelty Score | Mean Reconstruction Error | Maximum Pixel Error | Decision Status |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | `sample_06029.jpg` | `SRC_060` | **0.742821** | $0.000011$ | $0.001214$ | `Exceeds τ (0.626565)` |
-| **2** | `sample_04537.jpg` | `SRC_040` | **0.742797** | $0.000009$ | $0.004601$ | `Exceeds τ (0.626565)` |
-| **3** | `sample_03547.jpg` | `SRC_013` | **0.739186** | $0.000172$ | $0.022258$ | `Exceeds τ (0.626565)` |
-| **4** | `sample_09253.jpg` | `SRC_039` | **0.738691** | $0.000012$ | $0.005185$ | `Exceeds τ (0.626565)` |
-| **5** | `sample_08233.jpg` | `SRC_115` | **0.737548** | $0.000019$ | $0.015385$ | `Exceeds τ (0.626565)` |
+| **1** | `sample_06029.jpg` | `SRC_060` | **0.742821** | $0.000011$ | $0.001214$ | Exceeds $\tau$ ($0.626565$) |
+| **2** | `sample_04537.jpg` | `SRC_040` | **0.742797** | $0.000009$ | $0.004601$ | Exceeds $\tau$ ($0.626565$) |
+| **3** | `sample_03547.jpg` | `SRC_013` | **0.739186** | $0.000172$ | $0.022258$ | Exceeds $\tau$ ($0.626565$) |
+| **4** | `sample_09253.jpg` | `SRC_039` | **0.738691** | $0.000012$ | $0.005185$ | Exceeds $\tau$ ($0.626565$) |
+| **5** | `sample_08233.jpg` | `SRC_115` | **0.737548** | $0.000019$ | $0.015385$ | Exceeds $\tau$ ($0.626565$) |
 
 *All five top candidates comfortably exceed the statistical anomaly threshold ($\tau = 0.626565$).*
 
@@ -411,13 +380,13 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 ## 12. Reconstruction Interpretability
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 RECONSTRUCTION INTERPRETABILITY PIPELINE                                │
-├──────────────────────────┬──────────────────────────┬───────────────────────────────────────────────────┤
-│ 1. Original Image (x)    │ 2. V3 Reconstruction (x̂) │ 3. Pixel-Wise Squared Error Heatmap E(i, j)       │
-│ Normalized Grayscale     │ Latent decoding through  │ E(i, j) = (x(i, j) - x̂(i, j))²                    │
-│ Input (227 × 227)        │ skip-connected network   │ Highlights localized out-of-distribution features │
-└──────────────────────────┴──────────────────────────┴───────────────────────────────────────────────────┘
++---------------------------------------------------------------------------------------------+
+|                            RECONSTRUCTION INTERPRETABILITY WORKFLOW                         |
++-----------------------------+-----------------------------+---------------------------------+
+| 1. Input Anomaly Image (x)  | 2. V3 Reconstruction (x̂)    | 3. Pixel-Wise Squared Error E   |
+| Normalized 227 x 227 crop   | Generated from 256-D latent | E(i, j) = (x(i, j) - x̂(i, j))²  |
+| Containing unusual feature  | Preserves standard terrain  | Highlights anomalous boundaries |
++-----------------------------+-----------------------------+---------------------------------+
 ```
 
 - **Reconstruction Analysis**: Passing anomalous inputs through the V3 autoencoder produces high-fidelity reconstructions across standard background textures, but fails locally over rare, out-of-distribution morphology.
@@ -451,24 +420,18 @@ The 206 detected anomalies were cross-referenced with all available acquisition 
 - **Longitude Distribution**: Spans $0.0^\circ$ to $180.0^\circ$. Detections near $180^\circ$ reflect coordinate convention boundaries rather than true physical clustering.
 - **Source Observations**: The 206 anomalies originate from **101 unique source images** (e.g., `SRC_013` contributed 7, `SRC_040` contributed 6, `SRC_103`, `SRC_011`, `SRC_115` contributed 5 each). This confirms anomalies are distributed across multiple parent strips rather than being an artifact of a single corrupted observation.
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 ACQUISITION METADATA COMPARISON BENCHMARK                              │
-├─────────────────────┬───────────────────────────────┬───────────────────────────────┬──────────────────┤
-│ Metadata Attribute  │ Anomaly Population (206)      │ Full Dataset (10,422)         │ Assessment       │
-├─────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────┤
-│ 🌸 N-spring Season  │ 42.23%                        │ 40.20%                        │ Balanced         │
-│ ☀️ N-summer Season  │ 27.67%                        │ 29.07%                        │ Balanced         │
-│ 🍂 N-autumn Season  │ 19.42%                        │ 20.93%                        │ Balanced         │
-│ ❄️ N-winter Season  │ 10.68%                        │ 9.80%                         │ Balanced         │
-├─────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────┤
-│ 📐 0.25 m/px Res    │ 51.94%                        │ 51.10%                        │ Unbiased         │
-│ 📐 0.50 m/px Res    │ 46.60%                        │ 47.58%                        │ Unbiased         │
-│ 📐 1.00 m/px Res    │ 1.46%                         │ 1.31%                         │ Unbiased         │
-├─────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────┤
-│ ☀️ Mean Sun Angle   │ 54.50° [32.10°, 85.68°]       │ 55.31° [32.10°, 85.68°]       │ Identical Range  │
-└─────────────────────┴───────────────────────────────┴───────────────────────────────┴──────────────────┘
-```
+### Acquisition Distribution Comparison
+
+| Metadata Variable | Anomaly Subset (206 Images) | Full Dataset (10,422 Images) | Statistical Consistency Check |
+|---|---|---|---|
+| **Season: N-spring** | 42.23% | 40.20% | Consistent with baseline distribution |
+| **Season: N-summer** | 27.67% | 29.07% | Consistent with baseline distribution |
+| **Season: N-autumn** | 19.42% | 20.93% | Consistent with baseline distribution |
+| **Season: N-winter** | 10.68% | 9.80% | Consistent with baseline distribution |
+| **Resolution: 0.25 m/px** | 51.94% | 51.10% | Unbiased across spatial resolutions |
+| **Resolution: 0.50 m/px** | 46.60% | 47.58% | Unbiased across spatial resolutions |
+| **Resolution: 1.00 m/px** | 1.46% | 1.31% | Unbiased across spatial resolutions |
+| **Sun Angle (Mean / Range)** | $54.50^\circ$ [$32.10^\circ, 85.68^\circ$] | $55.31^\circ$ [$32.10^\circ, 85.68^\circ$] | Spans identical full range without bias |
 
 ### Optional Metadata Fusion Experiment
 A secondary experiment evaluated multimodal feature concatenation by combining the 256-D image latent vectors with 8 standardized metadata features (4 standardized numerical features: latitude, longitude, sun angle, resolution + 4 one-hot encoded seasons) to form a 264-dimensional feature matrix $X_{\text{fused}} \in \mathbb{R}^{10422 \times 264}$.
@@ -529,7 +492,16 @@ To ensure strict end-to-end reproducibility of all experiments, parameters, and 
 
 ---
 
+## 19. Team
 
+| Name | GitHub |
+|---|---|
+| | |
+| | |
+| | |
+| | |
+
+---
 
 ## 20. Limitations
 
