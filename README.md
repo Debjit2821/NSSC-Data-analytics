@@ -15,17 +15,17 @@
 | **Dataset Scale** | **10,422 Orbital Crops** | $227 \times 227$ Single-Channel Grayscale Imagery |
 | **Latent Compression** | **256-Dimensional Vector** | Bottleneck vector $z \in \mathbb{R}^{256}$ learned via Autoencoder V3 |
 | **Novelty Engine** | **Isolation Forest (300 Trees)** | Fitted on full $10,422 \times 256$ latent feature matrix |
-| **Statistical Cutoff** | **$\tau = \mu + 3\sigma = 0.626565$** | Parametric 3-sigma decision boundary on novelty scores |
+| **Statistical Cutoff** | **$\tau = \mu + 3\sigma = 0.626565$** | Empirical 3-sigma decision boundary on novelty scores |
 | **Flagged Anomalies** | **206 Images (1.98%)** | 10,216 Normal images; 206 Outliers exceeding $\tau$ |
 | **Model Parameters** | **30,416,929 Parameters** | 100% Trainable, Zero Pretraining (Trained strictly from scratch) |
-| **Reconstruction Error** | **$4.2304 \times 10^{-5}$ Val MSE** | 98.16% validation MSE reduction from V1 baseline to V3 |
+| **V3 Validation Loss** | **$5.7049 \times 10^{-5}$ Combined Val Loss** | Pure Val MSE: $4.2304 \times 10^{-5}$ (V2 achieved lowest pure MSE: $3.7316 \times 10^{-5}$) |
 | **Top-1 Anomaly** | **`sample_06029.jpg`** | Novelty Score: **0.742821** (Exceeds $\tau = 0.626565$) |
 
 ---
 
 ## 1. Project Overview
 
-This repository contains the end-to-end unsupervised anomaly detection pipeline developed for the **National Students’ Space Challenge (NSSC 2026)**, IIT Kharagpur, for the Data Analytics challenge: *"Unsupervised Anomaly Detection in Mars HiRISE Orbital Imagery"*.
+This repository contains the complete, reproducible, and end-to-end unsupervised anomaly detection pipeline developed for the **National Students’ Space Challenge (NSSC 2026)**, IIT Kharagpur, for the Data Analytics challenge: *"Unsupervised Anomaly Detection in Mars HiRISE Orbital Imagery"*.
 
 Orbital exploration missions such as the Mars Reconnaissance Orbiter (MRO) High Resolution Imaging Science Experiment (HiRISE) acquire massive volumes of high-resolution planetary surface imagery. Identifying rare, scientifically critical surface features (e.g., atypical volcanic vents, novel impact craters, unexpected erosional formations, and unique sediment outcrops) manually across tens of thousands of crops is practically infeasible. Furthermore, ground-truth anomaly labels do not exist for uncharted planetary surfaces.
 
@@ -63,7 +63,7 @@ flowchart LR
     end
     
     subgraph DecisionSpace["4. Statistical Filtering & Interpretability"]
-        F["Parametric Decision Boundary\nτ = μ + 3σ = 0.626565"]
+        F["Empirical Decision Boundary\nτ = μ + 3σ = 0.626565"]
         G["206 Outliers (1.98%)\nTop-5 Candidates"]
         H["Pixel Error Heatmaps (x - x̂)²\n& Geological Hypotheses"]
     end
@@ -74,7 +74,7 @@ flowchart LR
 The primary engineering and scientific objectives addressed are:
 - **Unsupervised Representation Learning**: Compress high-dimensional orbital imagery ($227 \times 227$ pixels) into a low-dimensional latent space ($d=256$) capturing geomorphological patterns without overfitting to noise or collapsing representations.
 - **Novelty Detection without Labels**: Formulate an outlier scoring mechanism on latent features to rank images by their degree of statistical isolation.
-- **Parametric Statistical Thresholding**: Define a principled anomaly boundary based on empirical distribution statistics ($\mu + 3\sigma$) rather than arbitrary contamination heuristics.
+- **Empirical Statistical Thresholding**: Define a principled anomaly boundary based on empirical distribution statistics ($\mu + 3\sigma$) rather than arbitrary contamination heuristics.
 - **Interpretability & Error Localization**: Map latent anomalies back to image space using pixel-wise reconstruction error maps to isolate sub-features driving anomalousness.
 - **Contextual Metadata Analysis**: Analyze orbital acquisition parameters (coordinates, solar angles, seasonal cycles, resolution) to differentiate acquisition artifacts from intrinsic surface novelty.
 
@@ -86,7 +86,7 @@ The primary engineering and scientific objectives addressed are:
 - **Total Images**: 10,422 single-channel grayscale crops (`sample_00001.jpg` to `sample_10422.jpg`).
 - **Spatial Resolution / Dimensions**: $227 \times 227$ pixels per crop.
 - **Image Format**: JPEG (`.jpg`), single-channel grayscale (loaded as 8-bit L-mode).
-- **Pixel Intensity Statistics (Raw uint8)**:
+- **Pixel Intensity Statistics (Raw uint8 across 1,000 random samples)**:
   - Minimum: `0.0`
   - Maximum: `255.0`
   - Mean: `118.439095`
@@ -128,7 +128,7 @@ flowchart TD
     subgraph S2["Phase 2 — Novelty Scoring & Thresholding"]
         P5["5. Isolation Forest Novelty Engine\n300 Trees, max_samples='auto'\nFit on full 10,422 × 256 Latent Space"]
         P6["6. Continuous Novelty Scoring\nNovelty Score = -s(z)\nHigher Score = Greater Anomalousness"]
-        P7["7. Statistical Thresholding\nParametric Rule: τ = μ + 3σ\nτ = 0.626565 → 206 Anomalies (1.98%)"]
+        P7["7. Statistical Thresholding\nEmpirical Rule: τ = μ + 3σ\nτ = 0.626565 → 206 Anomalies (1.98%)"]
         P8["8. Top-5 Anomaly Selection\nFilter threshold-qualified set first\nRank descending by Novelty Score"]
         P4 --> P5 --> P6 --> P7 --> P8
     end
@@ -261,8 +261,11 @@ where $\lambda_{\text{grad}} = 0.1$.
 | Version | Topology & Loss | Parameters | Best Validation Metric | Qualitative Assessment |
 |---|---|---:|---|---|
 | **V1 — Baseline** | 4-Stage ConvAE (No Skip)<br>Loss: Pure MSE | 30,324,481 | Best Val MSE: **0.002040** (Epoch 19) | Broad terrain preserved; high-frequency textures, ridges, and crater boundaries smoothed. |
-| **V2 — Improved** | 4-Stage ConvAE + Skip Connections<br>Loss: Pure MSE | 30,416,929 | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19) | **98.16% validation MSE reduction**; fine spatial textures and boundaries sharply reconstructed. |
-| **V3 — Final** | 4-Stage ConvAE + Skip Connections<br>Loss: Combined MSE + 0.1 × Gradient | 30,416,929 | Best Combined Val Loss: **$5.7049 \times 10^{-5}$**<br>Pure Val MSE: **$4.2304 \times 10^{-5}$** (Epoch 19) | Explicit gradient awareness preserves linear ridge transitions and localized surface relief for interpretability. |
+| **V2 — Improved** | 4-Stage ConvAE + Skip Connections<br>Loss: Pure MSE | 30,416,929 | Best Val MSE: **$3.7316 \times 10^{-5}$** (Epoch 19) | **Achieved lowest pure validation MSE**; 98.16% MSE reduction over V1; sharp spatial boundaries. |
+| **V3 — Final** | 4-Stage ConvAE + Skip Connections<br>Loss: Combined MSE + 0.1 × Gradient | 30,416,929 | Best Combined Val Loss: **$5.7049 \times 10^{-5}$**<br>Pure Val MSE: **$4.2304 \times 10^{-5}$** (Epoch 19) | Added gradient-aware term to V2 architecture to explicitly emphasize edge transitions and local structural relief for interpretability. |
+
+> [!NOTE]
+> Although Version 2 achieved the lowest pure validation MSE ($3.7316 \times 10^{-5}$), Version 3 was selected for the final pipeline because its combined objective explicitly optimizes for local gradient and structural fidelity needed for geological error interpretation.
 
 ### Engineering Changelog Table
 
@@ -284,10 +287,9 @@ where $\lambda_{\text{grad}} = 0.1$.
   - `init`: `"pca"`
   - `random_state`: `42`
 - **Observations & Analysis**:
-  - The 2D projection reveals a large, continuous central population representing typical background Martian terrain.
-  - Distinct peripheral sub-clusters and isolated projections are visibly separated from the main cluster.
-  - This confirms that the autoencoder successfully learned a structured, non-degenerate representation of surface morphology without collapsing latent representations into a trivial distribution.
-  - The t-SNE projection is treated as a representation diagnostic; the actual anomaly detection is conducted in the full 256-dimensional space using Isolation Forest.
+  - The 2D projection reveals a large, continuous central population representing typical background Martian terrain along with several smaller, spatially separated groups.
+  - The presence of structured regions indicates that the encoder learned a non-trivial representation of variation within Mars HiRISE imagery rather than collapsing into a single indistinguishable embedding.
+  - **Diagnostic Context**: t-SNE is treated strictly as a qualitative representation diagnostic. The separated groups are not interpreted as confirmed geological classes or anomalies; actual novelty detection is conducted independently on the full 256-dimensional latent space using Isolation Forest.
 
 ---
 
@@ -311,7 +313,6 @@ where $s(z)$ denotes the native Isolation Forest path-length score (`score_sampl
   - Minimum Novelty Score: `0.330454`
   - Maximum Novelty Score: `0.742821`
   - Mean ($\mu$): `0.398329`
-  - Median: `0.380126`
   - Standard Deviation ($\sigma$): `0.076079`
 
 ---
@@ -355,7 +356,7 @@ $$\tau_{\text{final}} = \mu + 3\sigma = 0.3983287455997971 + 3 \times 0.07607877
 ```
 
 > [!NOTE]
-> Diagnostic candidate analysis on earlier baseline runs evaluated $1\sigma$ (1,576 flagged), $2\sigma$ (577 flagged), $3\sigma$ (171 flagged on V1), and geometric curve elbow detection (1,642 flagged at 0.454288). The final V3 $\mu + 3\sigma$ thresholding isolates precisely the steep upper tail of the novelty distribution.
+> Diagnostic candidate analysis on earlier baseline runs evaluated $1\sigma$ (1,576 flagged), $2\sigma$ (577 flagged), $3\sigma$ (171 flagged on V1), and geometric curve elbow detection (1,642 flagged at 0.454288). The final V3 $\mu + 3\sigma$ thresholding isolates precisely the steep upper tail of the novelty distribution without arbitrary contamination presets.
 
 ---
 
@@ -365,13 +366,13 @@ The Top-5 anomalies were selected **strictly after applying the statistical thre
 
 ### Final V3 Top-5 Anomalies Table
 
-| Rank | Filename | Source Image ID | Novelty Score | Mean Reconstruction Error | Maximum Pixel Error | Decision Status |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | `sample_06029.jpg` | `SRC_060` | **0.742821** | $0.000011$ | $0.001214$ | Exceeds $\tau$ ($0.626565$) |
-| **2** | `sample_04537.jpg` | `SRC_040` | **0.742797** | $0.000009$ | $0.004601$ | Exceeds $\tau$ ($0.626565$) |
-| **3** | `sample_03547.jpg` | `SRC_013` | **0.739186** | $0.000172$ | $0.022258$ | Exceeds $\tau$ ($0.626565$) |
-| **4** | `sample_09253.jpg` | `SRC_039` | **0.738691** | $0.000012$ | $0.005185$ | Exceeds $\tau$ ($0.626565$) |
-| **5** | `sample_08233.jpg` | `SRC_115` | **0.737548** | $0.000019$ | $0.015385$ | Exceeds $\tau$ ($0.626565$) |
+| Rank | Filename | Novelty Score | Mean Reconstruction Error | Maximum Pixel Error | Decision Status |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| **1** | `sample_06029.jpg` | **0.742821** | $0.000011$ | $0.001214$ | Exceeds $\tau$ ($0.626565$) |
+| **2** | `sample_04537.jpg` | **0.742797** | $0.000009$ | $0.004601$ | Exceeds $\tau$ ($0.626565$) |
+| **3** | `sample_03547.jpg` | **0.739186** | $0.000172$ | $0.022258$ | Exceeds $\tau$ ($0.626565$) |
+| **4** | `sample_09253.jpg` | **0.738691** | $0.000012$ | $0.005185$ | Exceeds $\tau$ ($0.626565$) |
+| **5** | `sample_08233.jpg` | **0.737548** | $0.000019$ | $0.015385$ | Exceeds $\tau$ ($0.626565$) |
 
 *All five top candidates comfortably exceed the statistical anomaly threshold ($\tau = 0.626565$).*
 
@@ -450,7 +451,7 @@ A secondary experiment evaluated multimodal feature concatenation by combining t
 | **Phase 1.2 — Loss Function** | Formulated and evaluated MSE loss (V1/V2) and combined MSE + finite-difference gradient loss with $\lambda_{\text{grad}} = 0.1$ (V3). | `Complete` |
 | **Phase 1.3 — Latent Visualization** | 2D t-SNE projection on 2,085 validation latent representations with perplexity 30 and PCA initialization. | `Complete` |
 | **Phase 2.1 — Novelty Scoring** | 300-tree Isolation Forest fitted on full 256-D latent dataset with negated path length scoring. | `Complete` |
-| **Phase 2.2 — Statistical Thresholding** | Applied parametric $\mu + 3\sigma$ threshold ($\tau = 0.626565$), identifying 206 anomaly candidates (1.98%). | `Complete` |
+| **Phase 2.2 — Statistical Thresholding** | Applied empirical $\mu + 3\sigma$ threshold ($\tau = 0.626565$), identifying 206 anomaly candidates (1.98%). | `Complete` |
 | **Phase 2.3 — Location Analysis** | Source observation mapping and acquisition metadata comparison (lat, long, season, sun angle, resolution). | `Complete` |
 | **Phase 2.4 — Metadata Fusion** | 264-D multimodal fusion (latents + standardized metadata) yielding Spearman rank correlation $\rho = 0.9818$. | `Complete` |
 | **Phase 3.1 — Reconstruction Interpretability** | Reconstructed Top-5 anomalies and generated pixel-wise squared error heatmaps (`cmap="hot"`). | `Complete` |
@@ -467,7 +468,7 @@ A secondary experiment evaluated multimodal feature concatenation by combining t
 - **Scientific Computing & Data Handling**: NumPy, Pandas, SciPy (`scipy.stats.spearmanr`)
 - **Image Processing**: Pillow (PIL)
 - **Data Visualization**: Matplotlib (`matplotlib.pyplot`), Seaborn (`seaborn`)
-- **Hardware Acceleration**: NVIDIA CUDA (Tesla T4 GPU)
+- **Hardware Acceleration**: NVIDIA CUDA (Tesla T4 GPU verified in notebook)
 
 ---
 
@@ -492,16 +493,6 @@ To ensure strict end-to-end reproducibility of all experiments, parameters, and 
 
 ---
 
-## 19. Team
-
-| Name | GitHub |
-|---|---|
-| | |
-| | |
-| | |
-| | |
-
----
 
 ## 20. Limitations
 
